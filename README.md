@@ -15,7 +15,7 @@
 
 ### Схема контроллера
 
-![ Схема контроллера ](https://easyeda.com/normal/__-a5df877e166c40a09ff6ab7b3e196e90)
+![ Схема контроллера ](https://easyeda.com/normal/__-a5df877e166c40a09ff6ab7b3e196e90a)
 
 
 ### Схема ручек 
