@@ -27,6 +27,7 @@ const byte pinInLeft = 8; // левая ручка
 const byte pinInRight = 9; // правая ручка
 const byte pinInUp = 10;   // верхний концевик
 const byte pinInDown = 11; // нижний концевик
+const byte pinOutBrake = 12; // имитация датчика тормоза (вместе с аналоговым газом) оно же стопсигнал
 
 const byte pinInGas = 0;
 const byte pinOutGas = 1;
