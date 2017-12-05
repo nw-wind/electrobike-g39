@@ -228,7 +228,7 @@ void doEventFrame(enum EventFrame eventFrame) {
         case ReadyToTurnOn:
           if (dToTurnOn.Now()) {
             stateFrame = StayDown;
-            digitalWrite(pinOutIndicator,HIGH);
+            digitalWrite(pinOutIndicator, HIGH);
             doVibro(1, 1000);
             Serial.println("state = StayDown");
           }
@@ -276,7 +276,7 @@ void doEventFrame(enum EventFrame eventFrame) {
         case ReadyToTurnOff:
           if (dToTurnOff.Now()) {
             stateFrame = TurnedOff;
-            digitalWrite(pinOutIndicator,LOW);
+            digitalWrite(pinOutIndicator, LOW);
             doVibro(1, 1000);
             Serial.println("state = TurnedOff");
           }
@@ -404,8 +404,16 @@ void doEventBike(enum EventBike eventBike) {
   }
 }
 
+byte possibleMove() {
+  return stateFrame == StayUp;
+}
+
+byte possibleBrake() {
+  return stateFrame != TurnedOff;
+}
+
 void checkGas() {
-  byte d = 0; //dDebug.Now();
+  byte d = dDebug.Now();
   // Читаем ручку газа/тормоза и отделяем газ от тормоза
   int i = analogRead(pinInGas);
   int gas = map(i, 480, 0 , 0, 1023);
@@ -413,32 +421,33 @@ void checkGas() {
   int brake = map(i, 550, 1023, 0, 1023);
   if (i < 513) brake = 0;
   // Вывод отладки, если пора
-  if (d) Serial << "checkGas: Pin=" << i << " Gas=" << gas << " Brake=" << brake << eol;
+  if (d) Serial << "checkGas: Pin=" << i << " Gas=" << gas << " Brake=" << brake << " ";
   // Пишем газ и тормоз в исполнительные механизмы
-  if (stateBike != Standing) {
+  if (possibleMove()) {
     // если можно ехать - едем
     analogWrite(pinOutGas, gas);      // газ в контроллер
     analogWrite(pinOutABrake, brake);  // тормоз в хз куда
-    if (d) Serial << "checkGas (moving is possible) Gas=" << gas << " Brake=" << brake << eol;
+    if (d) Serial << "(moving is possible) Gas=" << gas << " Brake=" << brake << " ";
   } else {
     // нельзя ехать
     analogWrite(pinOutGas, 0);                              // стоять, газ отключен
-    if (d) Serial << "checkGas (gas released)" << eol;
-    if (stateFrame != StayDown) {
+    if (d) Serial << "(gas released, dont work) ";
+    if (possibleBrake()) {
       analogWrite(pinOutABrake, brake); // тормоз работает
-      if (d) Serial << "checkGas (brake works) Brake=" << brake << eol;
+      if (d) Serial << "(brake works) Brake=" << brake << " ";
     } else {
       analogWrite(pinOutABrake, 0);     // не тормозить тк стоим
-      if (d) Serial << "checkGas (brake released)" << eol;
+      if (d) Serial << "(brake released, dont work) ";
     }
   }
-  if (brake > 0) {
+  if (brake > 0 && stateFrame != TurnedOff) {
     digitalWrite(pinOutBrake, HIGH);
     doEventBike(BrakingOn);
   } else {
     digitalWrite(pinOutBrake, LOW);
     doEventBike(BrakingOff);
   }
+  if (d) Serial << eol;
 }
 
 void loop() {
