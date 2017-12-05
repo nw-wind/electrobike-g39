@@ -19,15 +19,15 @@
 #include "SmartDelay.h"
 
 const byte pinInSpeedSensor = 3;
-const byte pinOutIndicator = 4;
-const byte pinOutDirecton = 5;
-const byte pinOutStartStop = 6;
-const byte pinOutVibro = 7;
+const byte pinOutIndicator = 4; // свет (зелёный)
+const byte pinOutDirecton = 5; // направление подъём/спуск
+const byte pinOutStartStop = 6; // подвеска старт/стоп
+const byte pinOutVibro = 7; // (beep)
 const byte pinInLeft = 8; // левая ручка
 const byte pinInRight = 9; // правая ручка
 const byte pinInUp = 10;   // верхний концевик
 const byte pinInDown = 11; // нижний концевик
-const byte pinOutBrake = 12; // имитация датчика тормоза (вместе с аналоговым газом) оно же стопсигнал
+const byte pinOutBrake = 12; // имитация датчика тормоза (вместе с аналоговым газом) оно же стопсигнал (красный)
 
 const byte pinInGas = 0;
 const byte pinOutGas = 1;
@@ -39,20 +39,21 @@ const byte pinOutABrake = 2;
 
 SmartDelay dDebug(3000 * 1000UL); // вывод отладки
 
+// Что используется?
 //SmartDelay dDownToUp(toutDownToUp);
 //SmartDelay dTurnOnToReady(toutTurnOnToReady);
 SmartDelay dDelay14(250 * 1000UL);
 SmartDelay dDelay2(2 * 1000UL * 1000UL);
 SmartDelay dDelay10(10 * 1000UL * 1000UL);
 
-//enum Event {Idle = 0, ReadyToTurnOffDone, LeftOn, RightOn, LeftOff, RightOff, ReadyToTurnOnDone, ReadyToGoUpDownDone, IsUp, IsDown, SpeedUp, SpeedOff, Reset, Delay14, Delay2, Delay10};
-//enum State {StayDown = 0, ReadyToGoUp, GoingUp, StayUp, ReadyGoDown, Moving, ReadyToStop, GoingDown, TurnedOff, ReadyToTurnOn, ReadyToTurnOff, ErrorState};
+enum EventFrame {ErrorEventFrame = 0, HandlesOn, HandlesOff, IsUp, IsDown};
+enum StateFrame {ErrorStateFrame = 0, TurnedOff, ReadyToTurnOn, ReadyToTurnOff, StayDown, ReadyToGoUp, GoingUp, StayUp, ReadyToGoDown, GoingDown};
+enum StateFrame stateFrame = TurnedOff;
 
-enum Event {Idle = 0, ReadyToTurnOffDone, HandlesOn, HandlesOff, ReadyToTurnOnDone, ReadyToGoUpDownDone, IsUp, IsDown, SpeedUp, SpeedOff, Reset};
-enum State {StayDown = 0, ReadyToGoUp, GoingUp, StayUp, ReadyGoDown, Moving, ReadyToStop, GoingDown, TurnedOff, ReadyToTurnOn, ReadyToTurnOff, ErrorState};
+enum EventBike {ErrorEventBike = 0, SpeedUp, SpeedOff, BrakingOn, BrakingOff };
+enum StateBike {ErrorStateBike = 0, Moving, Moved, Standing, Stopped };
+enum StateBike stateBike = Standing;
 
-
-enum State state = TurnedOff;
 
 /*
   byte buttonState = 0x00; // состояние кнопок
@@ -61,8 +62,8 @@ enum State state = TurnedOff;
   #define RIGHT_HAND (0x02)
 */
 
-#define isButtonPressed(button,mask) ((button) & (mask))
-#define isButtonReleased(button,mask) (!((button) & (mask)))
+// #define isButtonPressed(button,mask) ((button) & (mask))
+// #define isButtonReleased(button,mask) (!((button) & (mask)))
 
 template<class T> inline Print &operator <<(Print &obj, T arg) {
   obj.print(arg);
@@ -70,6 +71,14 @@ template<class T> inline Print &operator <<(Print &obj, T arg) {
 }
 #define endl ("\n")
 #define eol (endl)
+
+/*
+  #ifdef DEBUG_LOG
+  #define log(obj) (Serial << obj)
+  #else
+  #define log(obj) (;)
+  #endif
+*/
 
 unsigned long currentSpeed = 0;
 
@@ -104,32 +113,36 @@ unsigned long  calcSpeed() {
   return velo;
 }
 
-void doVibro(byte init = 0) { // 1 старт, 0 ждать
+void doVibro(byte init = 0, unsigned long ms = 250) { // 1 старт, 0 ждать
   static byte vs = 0;
-  static SmartDelay vd(250 * 1000UL);
+  static SmartDelay vd(ms * 1000UL);
   if (init) {
     digitalWrite(pinOutVibro, HIGH);
     vd.Wait();
     vs = 1;
+    Serial.println("Vibro on");
   } else {
     if (vs && vd.Now()) {
       digitalWrite(pinOutVibro, LOW);
       vs = 0;
+      Serial.println("Vibro off");
     }
   }
 }
 
 void doStartStop(byte init = 0) {
   static byte vs = 0;
-  static SmartDelay vd(250 * 1000UL);
+  static SmartDelay vd(250 * 1000UL); // время нажатия кнопки старт/стоп
   if (init) {
     digitalWrite(pinOutStartStop, HIGH);
     vd.Wait();
     vs = 1;
+    Serial.println("Start/Stop on");
   } else {
     if (vs && vd.Now()) {
       digitalWrite(pinOutStartStop, LOW);
       vs = 0;
+      Serial.println("Start/Stop off");
     }
   }
 }
@@ -169,6 +182,9 @@ void doUpDown(byte init = 0, byte dir = 0) {
 void setup() {
   Serial.begin(115200);
   Serial.print("Starting...");
+
+  //log("test" << " " << "aaa" << eol);
+
   pinMode(pinInLeft, INPUT_PULLUP);
   pinMode(pinInRight, INPUT_PULLUP);
 
@@ -192,92 +208,198 @@ void setup() {
   Serial.println("READY");
 }
 
+// используется?
 SmartDelay dToUpDown(4 * 1000UL * 1000UL); // ожидание до подъёма и спуска (трогание кнопок)
 SmartDelay dToTurnOn(2 * 1000UL * 1000UL); // ожидание включения. выключено - стоит внизу
 SmartDelay dToTurnOff(10 * 1000UL * 1000UL);
+SmartDelay dFrameMovement(120 * 1000UL * 1000UL); // время подъёма/спуска подвески
 
-void doEvent(enum Event event) {
+void doEventFrame(enum EventFrame eventFrame) {
   // Обрабатываем события МКА
-  switch (event) {
-    case ReadyToTurnOffDone:
-      Serial.println("Left Off");
-      state = TurnedOff;
-      digitalWrite(pinOutIndicator, LOW);
-      doVibro(1);
-      break;
+  switch (eventFrame) {
     case HandlesOn:
-      //Serial.println("Hands On");
-      switch (state) {
+      switch (stateFrame) {
         case TurnedOff:
-          state = ReadyToTurnOn;
+          stateFrame = ReadyToTurnOn;
           dToTurnOn.Wait();
+          doVibro(1);
           Serial.println("state = ReadyToTurnOn");
           break;
+        case ReadyToTurnOn:
+          if (dToTurnOn.Now()) {
+            stateFrame = StayDown;
+            doVibro(1, 1000);
+            Serial.println("state = StayDown");
+          }
+          break;
+        case ReadyToTurnOff:
+          break;
         case StayDown:
-          state = ReadyToGoUp;
+          stateFrame = ReadyToGoUp;
           dToUpDown.Wait();
           Serial.println("state = ReadyToGoUp");
+          break;
+        case ReadyToGoUp:
+          if (dToUpDown.Now()) {
+            stateFrame = GoingUp;
+            doVibro(1);
+            doUpDown(1, DIR_UP);
+            dFrameMovement.Wait();
+            Serial.println("state = GoingUp");
+          }
+          break;
+        case  GoingUp:
+          if (dFrameMovement.Now()) {
+            stateFrame = StayUp;
+            doVibro(1);
+            Serial.println("state = StayUp TIMEOUT");
+          }
+          break;
+        case StayUp:
+          break;
+        case ReadyToGoDown:
+          break;
+        case GoingDown:
+          // подождать и поехать наверх
+          break;
+        case ErrorStateFrame:
           break;
       }
       break;
     case HandlesOff:
-      //Serial.println("Hands Off");
-      switch (state) {
+      switch (stateFrame) {
+        case TurnedOff:
+          break;
+        case ReadyToTurnOn:
+          break;
+        case ReadyToTurnOff:
+          if (dToTurnOff.Now()) {
+            stateFrame = TurnedOff;
+            doVibro(1, 1000);
+            Serial.println("state = TurnedOff");
+          }
+          break;
         case StayDown:
-          state = ReadyToTurnOff;
-          digitalWrite(pinOutIndicator, LOW);
-          Serial.println("state = TurnedOff");
+          stateFrame = ReadyToTurnOff;
           dToTurnOff.Wait();
+          doVibro(1);
+          Serial.println("state = ReadyToTurnOff");
+          break;
+        case ReadyToGoUp:
+          break;
+        case  GoingUp:
           break;
         case StayUp:
-          Serial.println("stayup -> going down");
-          state = GoingDown; ////
+          if (stateBike == Standing) {
+            stateFrame = ReadyToGoDown;
+            dToUpDown.Wait();
+            Serial.println("state = ReadyToGoDown");
+          } else {
+            Serial.println("StayUp Hands off -> we're moving");
+          }
           break;
-        case ReadyToGoUp:
-          Serial.println("to turn off");
-          state = ReadyToTurnOff;
-          // отключиться через 10 сек
-          dToTurnOff.Wait();
+        case ReadyToGoDown:
+          if (dToUpDown.Now()) {
+            stateFrame = GoingDown;
+            doVibro(1);
+            doUpDown(1, DIR_UP);
+            dFrameMovement.Wait();
+            Serial.println("state = GoingDown");
+          }
           break;
-      }
-      break;
-    case ReadyToTurnOnDone:
-      Serial.println("ReadyToTurnOnDone");
-      digitalWrite(pinOutIndicator, HIGH);
-      state = ReadyToGoUp;
-      dToUpDown.Wait();
-      Serial.println("state = ReadyToGoUp");
-      doVibro(1);
-      break;
-    case ReadyToGoUpDownDone:
-      Serial.println("ReadyToGoUpDownDone");
-      switch (state) {
-        case ReadyToGoUp:
-          state = GoingUp;
-          Serial.println("turn suspension up");
-          // управление контроллером подъёма
-          doVibro(1);
-          doUpDown(1, DIR_UP);
+        case GoingDown:
+          if (dFrameMovement.Now()) {
+            stateFrame = StayDown;
+            doVibro(1);
+            Serial.println("state = StayDown TIMEOUT");
+          }
+          break;
+        case ErrorStateFrame:
+          break;
       }
       break;
     case IsUp:
-      switch (state) {
+      switch (stateFrame) {
         case GoingUp:
           Serial.println("IsUp: stop");
-          state = StayUp;
+          stateFrame = StayUp;
           doUpDown(2);
+          doVibro(1);
       }
       break;
     case IsDown:
-      switch (state) {
+      switch (stateFrame) {
         case GoingDown:
           Serial.println("IsDn: stop");
-          state = StayDown;
+          stateFrame = StayDown;
           doUpDown(2);
+          doVibro(1);
       }
       break;
   }
 
+}
+
+void doEventBike(enum EventBike eventBike) {
+  // Обрабатываем события МКА
+  switch (eventBike) {
+    case SpeedUp:
+      switch (stateBike) {
+        case Moving:
+          break;
+        case Moved:
+          break;
+        case Standing:
+          break;
+        case Stopped:
+          break;
+        case ErrorStateBike:
+          break;
+      }
+      break;
+    case SpeedOff:
+      switch (stateBike) {
+        case Moving:
+          break;
+        case Moved:
+          break;
+        case Standing:
+          break;
+        case Stopped:
+          break;
+        case ErrorStateBike:
+          break;
+      }
+      break;
+    case BrakingOn:
+      switch (stateBike) {
+        case Moving:
+          break;
+        case Moved:
+          break;
+        case Standing:
+          break;
+        case Stopped:
+          break;
+        case ErrorStateBike:
+          break;
+      }
+      break;
+    case BrakingOff:
+      switch (stateBike) {
+        case Moving:
+          break;
+        case Moved:
+          break;
+        case Standing:
+          break;
+        case Stopped:
+          break;
+        case ErrorStateBike:
+          break;
+      }
+      break;
+  }
 }
 
 void checkGas() {
@@ -291,7 +413,7 @@ void checkGas() {
   // Вывод отладки, если пора
   if (d) Serial << "checkGas: Pin=" << i << " Gas=" << gas << " Brake=" << brake << eol;
   // Пишем газ и тормоз в исполнительные механизмы
-  if (state == StayUp && state == Moving && state == ReadyToStop) {
+  if (stateBike != Standing) {
     // если можно ехать - едем
     analogWrite(pinOutGas, gas);      // газ в контроллер
     analogWrite(pinOutABrake, brake);  // тормоз в хз куда
@@ -300,7 +422,7 @@ void checkGas() {
     // нельзя ехать
     analogWrite(pinOutGas, 0);                              // стоять, газ отключен
     if (d) Serial << "checkGas (gas released)" << eol;
-    if (state != StayDown) {
+    if (stateFrame != StayDown) {
       analogWrite(pinOutABrake, brake); // тормоз работает
       if (d) Serial << "checkGas (brake works) Brake=" << brake << eol;
     } else {
@@ -308,7 +430,13 @@ void checkGas() {
       if (d) Serial << "checkGas (brake released)" << eol;
     }
   }
-  digitalWrite(pinOutBrake, (brake > 0 ? HIGH : LOW));
+  if (brake > 0) {
+    digitalWrite(pinOutBrake, HIGH);
+    doEventBike(BrakingOn);
+  } else {
+    digitalWrite(pinOutBrake, LOW);
+    doEventBike(BrakingOff);
+  }
 }
 
 void loop() {
@@ -316,26 +444,20 @@ void loop() {
   if (veloUpdate.Now()) currentSpeed = calcSpeed();
   // газ/тормоз читаем
   checkGas();
+
+  // Рама
   // читаем состояние ручек руля
-  if (bothHandles()) doEvent(HandlesOn);
-  else doEvent(HandlesOff);
-  /*
-    if (isButtonReleased(buttonState, LEFT_HAND) && digitalRead(pinInLeft)) doEvent(LeftOn);
-    if (isButtonPressed(buttonState, LEFT_HAND) && !digitalRead(pinInLeft)) doEvent(LeftOff);
-    if (isButtonReleased(buttonState, RIGHT_HAND) && digitalRead(pinInRight)) doEvent(RightOn);
-    if (isButtonPressed(buttonState, RIGHT_HAND) && !digitalRead(pinInRight)) doEvent(RightOff);
-  */
-  // читаем состояние движения
-  if (currentSpeed > 0) doEvent(SpeedUp);
-  if (currentSpeed == 0) doEvent(SpeedOff);
-  if (digitalRead(pinInUp)) doEvent(IsUp);
-  if (digitalRead(pinInDown)) doEvent(IsDown);
-  // таймеры
-  if (state == ReadyToTurnOn && dToTurnOn.Now()) doEvent(ReadyToTurnOnDone);
-  if (state == ReadyToGoUp && dToUpDown.Now()) doEvent(ReadyToGoUpDownDone);
-  if (state == ReadyToTurnOff && dToTurnOff.Now()) doEvent(ReadyToTurnOffDone);
+  if (bothHandles()) doEventFrame(HandlesOn);
+  else doEventFrame(HandlesOff);
+  if (digitalRead(pinInUp)) doEventFrame(IsUp);
+  if (digitalRead(pinInDown)) doEventFrame(IsDown);
   // Эффекты
   doVibro();
   doStartStop();
   doUpDown();
+
+  // Мотик
+  // читаем состояние движения
+  if (currentSpeed > 0) doEventBike(SpeedUp);
+  if (currentSpeed == 0) doEventBike(SpeedOff);
 }
