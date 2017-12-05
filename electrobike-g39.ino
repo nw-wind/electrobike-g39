@@ -228,6 +228,7 @@ void doEventFrame(enum EventFrame eventFrame) {
         case ReadyToTurnOn:
           if (dToTurnOn.Now()) {
             stateFrame = StayDown;
+            digitalWrite(pinOutIndicator,HIGH);
             doVibro(1, 1000);
             Serial.println("state = StayDown");
           }
@@ -275,6 +276,7 @@ void doEventFrame(enum EventFrame eventFrame) {
         case ReadyToTurnOff:
           if (dToTurnOff.Now()) {
             stateFrame = TurnedOff;
+            digitalWrite(pinOutIndicator,LOW);
             doVibro(1, 1000);
             Serial.println("state = TurnedOff");
           }
