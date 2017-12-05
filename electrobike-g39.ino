@@ -31,8 +31,7 @@ const byte pinOutBrake = 12; // имитация датчика тормоза (
 
 const byte pinInGas = 0;
 const byte pinOutGas = 1;
-const byte pinOutBrake = 2;
-const byte pinOutSuspSpeed = 3;
+const byte pinOutABrake = 2;
 
 // Таймауты
 //const unsigned long toutDownToUp = 250 * 1000UL; // От стояния внизу до начала подъёма.
@@ -184,6 +183,7 @@ void setup() {
   pinMode(pinOutDirecton, OUTPUT);
   pinMode(pinOutStartStop, OUTPUT);
   pinMode(pinOutVibro, OUTPUT);
+  pinMode(pinOutBrake, OUTPUT);
 
   pinMode(pinInUp, INPUT_PULLUP);
   pinMode(pinInDown, INPUT_PULLUP);
@@ -284,9 +284,9 @@ void checkGas() {
   byte d = 0; //dDebug.Now();
   // Читаем ручку газа/тормоза и отделяем газ от тормоза
   int i = analogRead(pinInGas);
-  int gas = map(i, 512, 0 , 0, 1023);
+  int gas = map(i, 480, 0 , 0, 1023);
   if (i > 512) gas = 0;
-  int brake = map(i, 513, 1023, 0, 1023);
+  int brake = map(i, 550, 1023, 0, 1023);
   if (i < 513) brake = 0;
   // Вывод отладки, если пора
   if (d) Serial << "checkGas: Pin=" << i << " Gas=" << gas << " Brake=" << brake << eol;
@@ -294,20 +294,21 @@ void checkGas() {
   if (state == StayUp && state == Moving && state == ReadyToStop) {
     // если можно ехать - едем
     analogWrite(pinOutGas, gas);      // газ в контроллер
-    analogWrite(pinOutBrake, brake);  // тормоз в хз куда
+    analogWrite(pinOutABrake, brake);  // тормоз в хз куда
     if (d) Serial << "checkGas (moving is possible) Gas=" << gas << " Brake=" << brake << eol;
   } else {
     // нельзя ехать
     analogWrite(pinOutGas, 0);                              // стоять, газ отключен
     if (d) Serial << "checkGas (gas released)" << eol;
     if (state != StayDown) {
-      analogWrite(pinOutBrake, brake); // тормоз работает
+      analogWrite(pinOutABrake, brake); // тормоз работает
       if (d) Serial << "checkGas (brake works) Brake=" << brake << eol;
     } else {
-      analogWrite(pinOutBrake, 0);     // не тормозить тк стоим
+      analogWrite(pinOutABrake, 0);     // не тормозить тк стоим
       if (d) Serial << "checkGas (brake released)" << eol;
     }
   }
+  digitalWrite(pinOutBrake, (brake > 0 ? HIGH : LOW));
 }
 
 void loop() {
