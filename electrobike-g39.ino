@@ -1,29 +1,34 @@
 /* Garage 39 project
   Pins D:
   2 Датчик скорости (холла)
-  3
+  3 Управление газом
   4 Индикатор
   5 Направление: подъём/опускание
   6 Старт/стоп подвески
   7 Вибрация в ручках
+  8 левая ручка
+  9 правая ручка
+  10 нижний концкевик
+  11 верхний концевик
+  12 вход от стопсигнала
 
   Pins A:
   0 Датчик газа
-  1 Управление газом
-  2 Управление тормозом
-  3 Управление скоростью подъёма/спуска
+  1 
+
 
 
 */
 
-#include "ssd1306.h"
+// #include "ssd1306.h"
 #include <stdio.h>
 #include "SmartDelay.h"
 
 #define DIR_SIGNAL_UP (LOW)
 #define DIR_SIGNAL_DOWN (HIGH)
 
-const byte pinInSpeedSensor = 3;
+const byte pinInSpeedSensor = 2;
+const byte pinOutGas = 3;
 const byte pinOutIndicator = 4; // свет (зелёный)
 const byte pinOutDirecton = 5; // направление подъём/спуск
 const byte pinOutStartStop = 6; // подвеска старт/стоп
@@ -35,14 +40,13 @@ const byte pinInDown = 11; // нижний концевик
 const byte pinInBrake = 12; // имитация датчика тормоза (вместе с аналоговым газом) оно же стопсигнал (красный)
 
 const byte pinInGas = 0;
-const byte pinOutGas = 1;
-const byte pinOutABrake = 2;
 
 // Таймауты
 //const unsigned long toutDownToUp = 250 * 1000UL; // От стояния внизу до начала подъёма.
 //const unsigned long toutTurnOnToReady = 250 * 1000UL; // От готовности к включению до включения.
 
 SmartDelay dDebug(3000 * 1000UL); // вывод отладки
+SmartDelay disp(250*1000UL); // обновление дисплея
 
 // Что используется?
 //SmartDelay dDownToUp(toutDownToUp);
@@ -192,17 +196,11 @@ void setup() {
   Serial.begin(115200);
   Serial.print("Starting...");
 
-  //log("test" << " " << "aaa" << eol);
-
   pinMode(pinInLeft, INPUT_PULLUP);
   pinMode(pinInRight, INPUT_PULLUP);
 
-  //Serial.println("before speed inp");
-  //delay(1000);
   digitalWrite(pinInSpeedSensor, LOW);
-  pinMode(pinInSpeedSensor, INPUT);
-  //Serial.println("speed inp");
-  //delay(1000);
+  pinMode(pinInSpeedSensor, INPUT_PULLUP);
 
   pinMode(pinOutIndicator, OUTPUT);
   pinMode(pinOutDirecton, OUTPUT);
@@ -218,9 +216,9 @@ void setup() {
   pinMode(pinInDown, INPUT_PULLUP);
   pinMode(pinInBrake, INPUT_PULLUP);
 
-  ssd1306_128x32_i2c_init();
-  ssd1306_fillScreen( 0x00 );
-  ssd1306_clearScreen();
+  // ssd1306_128x32_i2c_init();
+  //ssd1306_fillScreen( 0x00 );
+  //ssd1306_clearScreen();
   ssd1306_charF6x8(0, 0, "Electrobike v0.9");
   ssdprint(0, 1, "%-20s", "TurnedOff");
   ssdprint(0, 2, "%-20s", "Standing");
@@ -235,7 +233,7 @@ void ssdprint(byte c, byte r, const char *fmt, ...) {
   va_start(argList, fmt);
   vsprintf(buf, fmt, argList);
   va_end(argList);
-  ssd1306_charF6x8(c, r, buf);
+  //ssd1306_charF6x8(c, r, buf);
 }
 
 // используется?
@@ -471,45 +469,40 @@ byte isBrakeOn() {
   return stateBrake || digitalRead(pinInBrake);
 }
 
+void displayState() {
+  if (disp.Now()) {
+    // рисуем дисплей
+  }
+}
+
 void checkGas() {
   byte d = dDebug.Now();
-  // Читаем ручку газа/тормоза и отделяем газ от тормоза
+  // Читаем ручку газа
   int i = analogRead(pinInGas);
-  int gas = map(i, 480, 0 , 0, 1023);
-  if (i > 512) gas = 0;
-  int brake = map(i, 550, 1023, 0, 1023);
-  if (i < 513) brake = 0;
+  int gas = map(i, 100, 1023 , 0, 1023);
+  if (gas<0) gas = 0;
   // Вывод отладки, если пора
-  if (d) Serial << "checkGas: Pin = " << i << " Gas = " << gas << " Brake = " << brake << " ";
+  if (d) Serial << "checkGas: Pin = " << i << " Gas = " << gas << " ";
   // Пишем газ и тормоз в исполнительные механизмы
   if (possibleMove()) {
     // если можно ехать - едем
     analogWrite(pinOutGas, gas);      // газ в контроллер
-    analogWrite(pinOutABrake, brake);  // тормоз в хз куда
-    if (d) Serial << "(moving is possible) Gas = " << gas << " Brake = " << brake << " ";
+    if (d) Serial << "(moving is possible) Gas = " << gas << " ";
   } else {
     // нельзя ехать
     analogWrite(pinOutGas, 0);                              // стоять, газ отключен
-    if (d) Serial << "(gas released, dont work) ";
-    if (possibleBrake()) {
-      analogWrite(pinOutABrake, brake); // тормоз работает
-      if (d) Serial << "(brake works) Brake = " << brake << " ";
-    } else {
-      analogWrite(pinOutABrake, 0);     // не тормозить тк стоим
-      if (d) Serial << "(brake released, dont work) ";
-    }
+    if (d) Serial << "(gas is blocked) ";
   }
   if (isBrakeOn() && stateFrame != TurnedOff) {
-    //digitalWrite(pinOutBrake, HIGH);
     doEventBike(BrakingOn);
   } else {
-    //digitalWrite(pinOutBrake, LOW);
     doEventBike(BrakingOff);
   }
   if (d) Serial << eol;
 }
 
 void loop() {
+  // Утилиты
   // считаем скорость
   if (veloUpdate.Now()) {
     currentGotSpeed = calcSpeed();
@@ -518,6 +511,8 @@ void loop() {
   }
   // газ/тормоз читаем
   checkGas();
+  // выводим на дисплей
+  displayState();
 
   // Рама
   // читаем состояние ручек руля
